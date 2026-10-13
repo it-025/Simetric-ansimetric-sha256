@@ -1,2 +1,3 @@
 # Simetric-ansimetric-sha256
 Выполнено Даниловичем Андреем ИТ-25
+https://youtu.be/585-k218-m0 ссылка на видео 
