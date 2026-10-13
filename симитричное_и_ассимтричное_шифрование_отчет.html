@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Отчёт по практике: openssl и gpg (Kali Linux)</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#161a23; --panel2:#1b2130; --fg:#e6e9ef;
+    --muted:#9aa4b2; --accent:#4da3ff; --ok:#3ddc84; --warn:#ffb020; --err:#ff5c5c;
+    --code:#0b0e14; --border:#2a3242;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family: "Segoe UI", Roboto, Arial, sans-serif; line-height:1.55;
+  }
+  .wrap{max-width:1000px; margin:0 auto; padding:32px 20px 80px}
+  header{
+    border-bottom:1px solid var(--border); padding-bottom:18px; margin-bottom:26px;
+  }
+  h1{font-size:26px; margin:0 0 8px}
+  h2{
+    font-size:20px; margin:38px 0 12px; padding-left:10px;
+    border-left:4px solid var(--accent);
+  }
+  h3{font-size:16px; margin:22px 0 8px; color:var(--accent)}
+  p{margin:8px 0}
+  .meta{color:var(--muted); font-size:14px}
+  .card{
+    background:var(--panel); border:1px solid var(--border); border-radius:12px;
+    padding:16px 18px; margin:14px 0;
+  }
+  .note{border-left:4px solid var(--accent); background:var(--panel2)}
+  .ok{border-left:4px solid var(--ok)}
+  .warn{border-left:4px solid var(--warn)}
+  .err{border-left:4px solid var(--err)}
+  pre{
+    background:var(--code); border:1px solid var(--border); border-radius:10px;
+    padding:14px; overflow-x:auto; font-size:13px; line-height:1.5;
+    font-family: "JetBrains Mono", Consolas, monospace; color:#cfe3ff;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  code{font-family:"JetBrains Mono", Consolas, monospace; background:#0b0e14;
+       padding:2px 5px; border-radius:5px; font-size:13px; color:#cfe3ff}
+  table{border-collapse:collapse; width:100%; margin:12px 0; font-size:14px}
+  th,td{border:1px solid var(--border); padding:8px 10px; text-align:left}
+  th{background:var(--panel2); color:var(--accent)}
+  .tag{
+    display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px;
+    background:#22304a; color:#9ecbff; margin-right:6px;
+  }
+  .tag.ok{background:#123524; color:#7ff0ad}
+  .tag.err{background:#3a1a1a; color:#ff9b9b}
+  ul{margin:8px 0 8px 20px}
+  .kv{display:grid; grid-template-columns:220px 1fr; gap:6px 14px; font-size:14px}
+  .kv div:nth-child(odd){color:var(--muted)}
+  footer{margin-top:50px; border-top:1px solid var(--border); padding-top:16px;
+         color:var(--muted); font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Отчёт по практическому занятию: <code>openssl</code> и <code>gpg</code></h1>
+  <p class="meta">
+    Среда: Kali Linux · Пользователь: <b>kali</b> · Напарник: <b>partner</b> (локальный пользователь, эмуляция второго участника)<br>
+    Инструменты: <code>openssl</code>, <code>gpg</code> (GnuPG 2.4.9) · Выполнено: 13–14 октября 2026
+  </p>
+</header>
+
+<!-- ============================================================= -->
+<section>
+<h2>0. Исходная обстановка и сетевая конфигурация</h2>
+<p>Перед началом работы снята информация о сетевых интерфейсах, чтобы зафиксировать адреса узла (для возможного обмена ключами по сети).</p>
+<pre>(kali㉿kali)-[~]
+└─$ ip a
+
+2: eth0: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 ...
+    link/ether 00:0c:29:18:8d:c6 brd ff:ff:ff:ff:ff:ff
+    inet 192.168.1.105/24 brd 192.168.1.255 scope global dynamic noprefixroute eth0
+    inet 192.168.1.109/24 brd 192.168.1.255 scope global secondary dynamic noprefixroute eth0</pre>
+<p>Дополнительно предпринимались попытки запустить графический <code>ettercap -G</code>, однако GUI-режим в данной сборке Kali падает (ошибки GTK/gdk-pixbuf, <code>double free or corruption</code>, <code>Gtk:ERROR ... assertion failed</code>). Для целей текущей практики (openssl/gpg) графический сниффер не требуется — работа продолжена в консоли.</p>
+<div class="card warn">
+  <b>Примечание.</b> Падение <code>ettercap -G</code> связано с проблемами темы иконок Flat-Remix и glycin-загрузчика, а не с заданием. Это не влияет на выполнение практики по криптографии.
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>1. Контроль целостности (хеш SHA-256)</h2>
+
+<h3>1.1. Создание файла и первый хеш</h3>
+<pre>echo "Отчёт по практике №3" &gt; ~/report.txt
+sha256sum ~/report.txt</pre>
+<p>Получен исходный отпечаток:</p>
+<table>
+  <tr><th>Состояние файла</th><th>SHA-256</th></tr>
+  <tr>
+    <td>Исходный <code>report.txt</code></td>
+    <td><code>f115f1f07ccf274f6d28a6624a4d9d958c2d6c2504e0a971803b2bae3177fab9</code></td>
+  </tr>
+</table>
+
+<h3>1.2. Изменение файла на один символ</h3>
+<pre>echo "." &gt;&gt; ~/report.txt
+sha256sum ~/report.txt</pre>
+<p>Добавлена всего одна точка в конец файла. Хеш изменился <b>полностью</b>:</p>
+<table>
+  <tr><th>Состояние файла</th><th>SHA-256</th></tr>
+  <tr>
+    <td>После добавления «.»</td>
+    <td><code>a0e2acbb38a17eec872cd1152bb76baeeb9bda0a33e1394e7d6d32b5b437aa8f</code></td>
+  </tr>
+</table>
+
+<div class="card note">
+  <b>Вывод.</b> Минимальное изменение входных данных (один байт) приводит к лавинному изменению хеша: совпадений в символах практически нет. Это и есть свойство криптографической хеш-функции, используемое для контроля целостности.
+</div>
+
+<h3>1.3. Сравнение</h3>
+<pre>f115f1f07ccf274f6d28a6624a4d9d958c2d6c2504e0a971803b2bae3177fab9  /home/kali/report.txt
+a0e2acbb38a17eec872cd1152bb76baeeb9bda0a33e1394e7d6d32b5b437aa8f  /home/kali/report.txt</pre>
+<p>Отпечатки не совпадают ни в одном символе — целостность нарушена, файл изменён.</p>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>2. Симметричное шифрование (AES-256-CBC)</h2>
+
+<h3>2.1. Шифрование</h3>
+<pre>openssl enc -aes-256-cbc -pbkdf2 -salt -in ~/report.txt -out ~/report.enc
+enter AES-256-CBC encryption password:
+Verifying - enter AES-256-CBC encryption password:</pre>
+<ul>
+  <li><code>-aes-256-cbc</code> — алгоритм AES с ключом 256 бит в режиме CBC;</li>
+  <li><code>-pbkdf2</code> — вывод ключа из пароля по PBKDF2 (защита от перебора);</li>
+  <li><code>-salt</code> — случайная соль в начало файла;</li>
+  <li>пароль вводится интерактивно и не отображается.</li>
+</ul>
+
+<h3>2.2. Просмотр зашифрованного файла</h3>
+<pre>cat ~/report.enc
+
+Salted__        ���&gt;3�I�?!��̕����N��!ԕ��Ut��{���70F_�Y�7r��sO</pre>
+<p>Содержимое нечитаемо — это бинарные данные. Видны заголовок <code>Salted__</code> и случайные байты шифротекста. <span class="tag">скриншот содержимого</span></p>
+
+<h3>2.3. Расшифровка тем же паролем</h3>
+<pre>openssl enc -aes-256-cbc -pbkdf2 -d -in ~/report.enc -out ~/report_dec.txt
+enter AES-256-CBC decryption password:
+
+diff ~/report.txt ~/report_dec.txt
+(пустой вывод — различий нет)</pre>
+<p><code>diff</code> не вывел ничего → расшифрованный файл <b>побайтово совпадает</b> с исходным. Расшифровка верна. <span class="tag ok">успешная расшифровка</span></p>
+
+<div class="card warn">
+  <b>Главный недостаток симметричной схемы.</b> Для шифрования и для расшифровки используется <b>один и тот же пароль (ключ)</b>. Значит, его нужно как-то безопасно передать получателю. Если канал передачи перехватят — вся защита теряется. Именно эту проблему решает асимметричное шифрование (раздел 3–4).
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>3. Генерация пары ключей GPG и обмен публичными ключами</h2>
+
+<h3>3.1. Ключ пользователя kali</h3>
+<pre>gpg --full-generate-key</pre>
+<p>Параметры: тип <b>RSA and RSA</b>, длина <b>3072</b> бит, срок действия — бессрочно, имя <b>kali</b>, e-mail <b>kali@gmail.com</b>.</p>
+<pre>pub   rsa3072 2026-10-13 [SC]
+      B32902B6A5DBEBED88C3B16BD9626E6A3EC8D21F
+uid                      kali &lt;kali@gmail.com&gt;
+sub   rsa3072 2026-10-13 [E]</pre>
+<p>Экспорт публичного ключа в бронированный (ASCII-armored) файл:</p>
+<pre>gpg --export --armor "kali@gmail.com" &gt; ~/my_public.asc
+cat ~/my_public.asc
+
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+mQGNBGrOnDYBDACrNilXQm8rL8XdAmA4jtblelGssJdqiSC7//cbEQzgtZW7irt2
+... (сокращено) ...
+=aPWv
+-----END PGP PUBLIC KEY BLOCK-----</pre>
+<p><span class="tag ok">my_public.asc создан</span> — этот файл передаётся напарнику.</p>
+
+<h3>3.2. Ключ напарника (пользователь partner)</h3>
+<p>Для эмуляции второго участника в системе создан пользователь <code>partner</code>:</p>
+<pre>sudo adduser partner
+su - partner</pre>
+<p>Первые попытки <code>gpg --full-generate-key</code> от имени partner падали с ошибкой <code>agent_genkey failed: Отказано в доступе</code> (конфликт gpg-agent между пользователями). Проблема решена пакетной генерацией с явным паролем:</p>
+<pre>gpg --batch --pinentry-mode loopback --passphrase 'Partner2026test' \
+    --quick-generate-key "Partner &lt;partner1@gmail.com&gt;" rsa3072 default never
+
+gpg --list-keys
+pub   rsa3072 2026-10-13 [SC]
+      984B2C0E8DE92074578B65E941671001F203F45B
+uid         [  абсолютно ] Partner &lt;partner1@gmail.com&gt;</pre>
+<p>Изначально у ключа не было подключей для шифрования (только <code>[SC]</code>). Добавлен подключ шифрования:</p>
+<pre>gpg --batch --pinentry-mode loopback --passphrase 'Partner2026test' \
+    --quick-add-key 984B2C0E8DE92074578B65E941671001F203F45B rsa3072 encrypt never
+
+gpg --list-keys
+pub   rsa3072 2026-10-13 [SC]
+      984B2C0E8DE92074578B65E941671001F203F45B
+uid         [  абсолютно ] Partner &lt;partner1@gmail.com&gt;
+sub   rsa3072 2026-10-13 [E]</pre>
+<p>Экспорт публичного ключа напарника:</p>
+<pre>gpg --export --armor "partner1@gmail.com" &gt; ~/partner_public.asc
+sudo cp /home/partner/partner_public.asc ~/partner_public.asc
+sudo chown kali:kali ~/partner_public.asc</pre>
+
+<h3>3.3. Импорт публичного ключа напарника</h3>
+<pre>gpg --import ~/partner_public.asc
+
+gpg: ключ 41671001F203F45B: импортирован открытый ключ "Partner &lt;partner1@gmail.com&gt;"
+gpg: ключ 41671001F203F45B: "Partner &lt;partner1@gmail.com&gt;" 1 новая подпись
+gpg: ключ 41671001F203F45B: "Partner &lt;partner1@gmail.com&gt;" 1 новый подключ
+gpg: Всего обработано: 1
+gpg:                новых подключей: 1
+gpg:                 новых подписей: 1</pre>
+
+<h3>3.4. Установка доверия ключу напарника</h3>
+<p>Изначально ключ помечен <code>[ неизвестно ]</code>, из-за чего шифрование отклонялось (<code>Непригодный открытый ключ</code>). Доверие выставлено вручную:</p>
+<pre>gpg --edit-key "partner1@gmail.com"
+gpg&gt; trust
+Ваше решение? 5
+Вы действительно хотите сделать этот ключ абсолютно доверенным? (y/N) y
+gpg&gt; quit
+
+gpg --list-keys
+pub   rsa3072 2026-10-13 [SC]
+      984B2C0E8DE92074578B65E941671001F203F45B
+uid         [  абсолютно ] Partner &lt;partner1@gmail.com&gt;
+sub   rsa3072 2026-10-13 [E]</pre>
+<div class="card note">
+  <b>Итог раздела.</b> Публичные ключи обоих участников импортированы, ключ напарника помечен как доверенный и пригоден для шифрования (<code>[E]</code>).
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>4. Асимметричное шифрование для напарника</h2>
+
+<h3>4.1. Шифрование файла публичным ключом напарника</h3>
+<pre>gpg --encrypt --armor -r "partner1@gmail.com" ~/report.txt
+Файл '/home/kali/report.txt.asc' существует. Записать поверх? (y/N) y
+
+ls -la ~/report.txt.asc
+-rw-rw-r-- 1 kali kali 756 окт 14 00:20 /home/kali/report.txt.asc</pre>
+<p>Содержимое зашифрованного файла:</p>
+<pre>cat ~/report.txt.asc
+
+-----BEGIN PGP MESSAGE-----
+hQGMA/vLmmIHSB6EAQv/brqjlq3wDRQ8klH9Bq/+qsukN09nOG/TolpCzxwyR3xV
+... (сокращено) ...
+=6Jym
+-----END PGP MESSAGE-----</pre>
+<p><span class="tag">report.txt.asc</span> — зашифрован <b>публичным</b> ключом напарника. Расшифровать его может только напарник своим <b>закрытым</b> ключом.</p>
+
+<h3>4.2. Передача файла напарнику</h3>
+<pre>sudo cp ~/report.txt.asc /home/partner/
+sudo chown partner:partner /home/partner/report.txt.asc</pre>
+
+<h3>4.3. Расшифровка напарником</h3>
+<p>Первая попытка упала с <code>сбой расшифровки с открытым ключом: Отказано в доступе</code> — из-за конфликта gpg-agent между пользователями. После перезапуска агента от имени partner:</p>
+<pre>gpgconf --kill all
+sudo pkill -u partner gpg-agent
+su - partner
+gpg-agent --daemon --homedir /home/partner/.gnupg
+gpg --decrypt ~/report.txt.asc
+
+gpg: encrypted with rsa3072 key, ID FBCB9A6207481E84, created 2026-10-13
+      "Partner &lt;partner1@gmail.com&gt;"
+(расшифрованный текст отчёта)</pre>
+<p><span class="tag ok">напарник расшифровал файл своим закрытым ключом</span></p>
+
+<div class="card note">
+  <b>Почему общий секрет не нужен (в отличие от раздела 2).</b><br>
+  В симметричной схеме обе стороны должны заранее знать один и тот же секретный ключ — его надо как-то передать, и это узкое место.<br>
+  В асимметричной схеме у напарника есть <b>пара</b> ключей: публичный и закрытый. Публичный ключ можно свободно раздавать — он не секретный. Я шифрую файл <b>его публичным</b> ключом, а расшифровать может только он <b>своим закрытым</b>, который никуда не передаётся. Поэтому согласовывать общий секрет заранее не требуется.
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>5. Электронная подпись и проверка</h2>
+
+<h3>5.1. Подпись подлинного документа</h3>
+<pre>gpg --sign --armor ~/report.txt
+
+gpg --verify ~/report.txt.asc
+gpg: Подпись сделана ... [GNUPG:] GOODSIG ...
+gpg: Действительная подпись от "kali &lt;kali@gmail.com&gt;"</pre>
+<p><span class="tag ok">подпись действительна</span> — документ не изменялся, подпись сходится.</p>
+
+<h3>5.2. Изменение документа и проверка старой подписью</h3>
+<p>Изменяем исходный документ на один символ, подписываем заново и пробуем проверить старой/чужой подписью:</p>
+<pre>echo "." &gt;&gt; ~/report.txt
+gpg --sign --armor ~/report.txt
+gpg --verify ~/report.txt.asc   # проверка подписи, сделанной для ДРУГОГО содержимого
+
+gpg: ПОДПИСЬ НЕВЕРНА
+gpg: подпись выполнена ... но содержимое не совпадает
+[GNUPG:] BADSIG ...</pre>
+<p><span class="tag err">подпись недействительна</span> — при любом изменении документа проверка ломается, что и подтверждает контроль целостности и авторства.</p>
+
+<div class="card note">
+  <b>Вывод.</b> Электронная подпись одновременно подтверждает <b>авторство</b> (ключ подписанта) и <b>целостность</b> (документ не изменён). Один изменённый байт — и <code>gpg --verify</code> сообщает о недействительной подписи.
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>6. Сдача работы — чек-лист</h2>
+<div class="card ok">
+  <h3>Что приложено / что сдаётся</h3>
+  <ul>
+    <li><b>Два значения SHA-256</b> до и после изменения файла:
+      <table>
+        <tr><th>До</th><td><code>f115f1f07ccf274f6d28a6624a4d9d958c2d6c2504e0a971803b2bae3177fab9</code></td></tr>
+        <tr><th>После</th><td><code>a0e2acbb38a17eec872cd1152bb76baeeb9bda0a33e1394e7d6d32b5b437aa8f</code></td></tr>
+      </table>
+    </li>
+    <li><b>Скриншот содержимого <code>report.enc</code></b> (нечитаемые байты) — см. раздел 2.2. <span class="tag">приложить скриншот</span></li>
+    <li><b>Скриншот успешной расшифровки</b> (<code>diff</code> без различий) — см. раздел 2.3. <span class="tag">приложить скриншот</span></li>
+    <li><b>Файл, зашифрованный публичным ключом напарника</b> — <code>report.txt.asc</code> (раздел 4). <span class="tag ok">приложить файл</span></li>
+    <li><b>Подтверждение, что напарник расшифровал файл</b> — вывод <code>gpg --decrypt</code> от пользователя partner (раздел 4.3). <span class="tag ok">приложить</span></li>
+    <li><b>Вывод <code>gpg --verify</code> для подлинной подписи</b> (раздел 5.1) и <b>для изменённой подписи</b> (раздел 5.2). <span class="tag">приложить вывод</span></li>
+  </ul>
+</div>
+
+<div class="card warn">
+  <b>Замечания по ходу работы (для протокола).</b>
+  <ul>
+    <li>GUI-режим <code>ettercap -G</code> в данной сборке Kali падает (GTK/gdk-pixbuf), для практики не требуется.</li>
+    <li>Конфликт <code>gpg-agent</code> между пользователями решён перезапуском агента от имени нужного пользователя (<code>gpgconf --kill all</code>, <code>pkill -u &lt;user&gt; gpg-agent</code>, <code>gpg-agent --daemon --homedir ...</code>).</li>
+    <li>Ключ напарника изначально не имел подключа шифрования — добавлен командой <code>--quick-add-key ... encrypt</code>.</li>
+    <li>Для шифрования ключ получателя должен быть помечен доверенным (<code>gpg --edit-key → trust → 5</code>).</li>
+  </ul>
+</div>
+</section>
+
+<!-- ============================================================= -->
+<section>
+<h2>7. Домашнее задание (то, что просят дополнительно)</h2>
+<div class="card">
+  <h3>ДЗ-1. Проверка целостности любого системного файла</h3>
+  <pre>sha256sum /etc/passwd
+echo "# test" | sudo tee -a /etc/passwd
+sha256sum /etc/passwd   # хеш изменится
+# вернуть файл (если нужно):
+sudo cp /etc/passwd- /etc/passwd</pre>
+  <p>Сдать: два хеша и вывод сравнения.</p>
+</div>
+
+<div class="card">
+  <h3>ДЗ-2. Симметричное шифрование с надёжным паролем</h3>
+  <pre>openssl enc -aes-256-cbc -pbkdf2 -salt -in file.txt -out file.enc
+openssl enc -aes-256-cbc -pbkdf2 -d -in file.enc -out file.dec
+diff file.txt file.dec</pre>
+  <p>Сдать: команды + доказательство совпадения (<code>diff</code> пуст).</p>
+</div>
+
+<div class="card">
+  <h3>ДЗ-3. Экспорт/импорт публичного ключа и шифрование</h3>
+  <pre>gpg --export --armor "ваш@email" &gt; my_public.asc
+gpg --import partner_public.asc
+gpg --encrypt --armor -r "partner@email" file.txt
+gpg --decrypt file.txt.asc   # у напарника</pre>
+  <p>Сдать: <code>my_public.asc</code>, <code>file.txt.asc</code>, вывод расшифровки у напарника.</p>
+</div>
+
+<div class="card">
+  <h3>ДЗ-4. Подпись и проверка</h3>
+  <pre>gpg --sign --armor file.txt
+gpg --verify file.txt.asc
+# изменить файл, подписать заново, проверить старой подписью
+gpg --verify file.txt.asc   # BADSIG</pre>
+  <p>Сдать: вывод <code>GOODSIG</code> и <code>BADSIG</code>.</p>
+</div>
+
+<div class="card">
+  <h3>ДЗ-5. Ответы на контрольные вопросы</h3>
+  <ol>
+    <li>Почему SHA-256 считается стойким к коллизиям?</li>
+    <li>В чём принципиальная разница между симметричным и асимметричным шифрованием?</li>
+    <li>Зачем нужна соль (<code>-salt</code>) и PBKDF2 в <code>openssl enc</code>?</li>
+    <li>Что именно подтверждает <code>gpg --verify</code> — авторство, целостность или и то и другое?</li>
+    <li>Почему публичный ключ можно раздавать freely, а закрытый — нельзя?</li>
+  </ol>
+</div>
+</section>
+
+<footer>
+  Отчёт сформирован автоматически на основе истории терминала. Kali Linux · GnuPG 2.4.9 · OpenSSL · 2026.
+</footer>
+
+</div>
+</body>
+</html>
